@@ -1,16 +1,12 @@
-"""astroinv (refactor step 1)
+"""astroinv - refactor-only split of original monolithic init.py.
 
-This package is a mechanical split of the original single-file implementation.
-No functional change intended. Only code organization / imports.
+This package preserves the original public API by re-exporting the same symbols.
 """
 
-from .inventory import Inventory
-from .cache import Cache
-from .models import *
-from .exceptions import *
-from .constants import *
+from .constants import *  # noqa
+from .exceptions import *  # noqa
+from .models import *  # noqa
+from .cache import *  # noqa
+from .inventory import Inventory  # noqa
 
-__all__ = [
-    "Inventory",
-    "Cache",
-]
+__all__ = [name for name in globals().keys() if not name.startswith("_")]
