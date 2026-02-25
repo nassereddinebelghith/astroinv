@@ -1,34 +1,31 @@
-from __future__ import annotations
-
 import re
+import semver.version
 
-# ----------------------------
-# GitLab Retry / Concurrency
-# ----------------------------
+TEMPLATES_PATH = "templates"
 
-# Retry policy for transient GitLab/API failures.
-GITLAB_TRY_WAIT_SECONDS = 1
-GITLAB_MAX_TRIES = 3
+# Ex: custname-ap12345
+PATH_REGEX = re.compile(
+    r"^(?P<zone>hprd|prod)/(?P<env>dev|int|uat|pprd|prd|dhdev)/(?P<cust_name>[^-]+)-(?P<cust_apcode>ap[0-9]{5})/(?P<apcode>ap[0-9]{5})-(?P<release_id>[a-z0-9]{10})$"
+)
 
-# Marketplace scanning is throughput-oriented: moderate concurrency is safe and fast.
-# If your GitLab is fragile or heavily shared, reduce to 10.
-DEFAULT_GITLAB_CONCURRENCY = 15
+# Ex: config/customer.yml
+LEGACY_PATH_REGEX = re.compile(r"^config/(?P<cust>[a-z0-9]+)\.ya?ml$")
 
-# Health checks hit Airflow endpoints, not GitLab. Keep separate tuning.
-DEFAULT_HEALTH_CONCURRENCY = 20
+# Ex: eph12.yaml or eph12.yml
+EPH_FILENAME_REGEX = re.compile(r"^eph(?P<number>\d+)\.ya?ml$")
 
-# ----------------------------
-# Cache TTLs (seconds)
-# ----------------------------
-# Marketplace usually tolerates slight staleness. These values reduce repeated calls during bursts.
-TREE_CACHE_TTL_SECONDS = 120
-FILE_CACHE_TTL_SECONDS = 120
+# cluster name format
+CLUSTER_REGEX = re.compile(
+    r"^iks-(?P<apcode>[a-z0-9]+)-(?P<zone>[a-z0-9]+)-[a-z0-9]+$"
+)
 
-# ----------------------------
-# Inventory conventions
-# ----------------------------
+# apcode format
+APCODE_REGEX = re.compile(r"^a(p|[0-9])[0-9]{5}$")
 
-LEGACY_REF_BY_ENV: dict[str, str] = {
+# version format
+VERSION_REGEX = re.compile(r"^(?P<major>[0-9]+)\.(?P<minor>[0-9]+)\.(?P<patch>[0-9]+)$")
+
+LEGACY_REF_BY_ENV = {
     "dev": "dev",
     "int": "int",
     "uat": "uat",
@@ -38,11 +35,7 @@ LEGACY_REF_BY_ENV: dict[str, str] = {
     "prod": "prod",
 }
 
-# Example: eph12.yaml or eph12.yml
-EPH_FILENAME_REGEX = re.compile(r"^eph(?P<number>\d+)\.ya?ml$")
+FIRST_VERSION = semver.version.Version(major=0, minor=1, patch=0)
 
-# Example legacy file: config/customer.yml
-LEGACY_PATH_REGEX = re.compile(r"^config/(?P<cust>[^/]+)\.ya?ml$")
-
-# Conservative cluster name validation.
-CLUSTER_REGEX = re.compile(r"^[a-zA-Z0-9\-]+$")
+GITLAB_TRY_WAIT = 1
+GITLAB_MAX_TRIES = 3
