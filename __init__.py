@@ -1,53 +1,16 @@
-"""astroinv
+"""astroinv (refactor step 1)
 
-Optimized, marketplace-oriented inventory scanning library (best-effort reconstruction).
-
-Key properties:
-- Shared aiohttp session
-- Bounded concurrency for GitLab calls
-- TTL caching for repository trees and file reads
-- Bulk scanning API for marketplace use cases
-- Safe YAML parsing
+This package is a mechanical split of the original single-file implementation.
+No functional change intended. Only code organization / imports.
 """
 
-from .models import (
-    Service,
-    Cluster,
-    Customer,
-    Secret,
-    SecretStore,
-    Source,
-    InstancePath,
-    Instance,
-    Ephemeral,
-    AirflowHealthError,
-    AirflowHealthResult,
-    EphemeralConfig,
-    InventorySnapshot,
-)
-from .cache import InMemoryCache, TtlCache
-from .gitlab_client import GitLabClient, GitLabFile
-from .inventory import AstroInventory
-from .snapshot import SnapshotService
+from .inventory import Inventory
+from .cache import Cache
+from .models import *
+from .exceptions import *
+from .constants import *
 
 __all__ = [
-    "Service",
-    "Cluster",
-    "Customer",
-    "Secret",
-    "SecretStore",
-    "Source",
-    "InstancePath",
-    "Instance",
-    "Ephemeral",
-    "AirflowHealthError",
-    "AirflowHealthResult",
-    "EphemeralConfig",
-    "InventorySnapshot",
-    "InMemoryCache",
-    "TtlCache",
-    "GitLabClient",
-    "GitLabFile",
-    "AstroInventory",
-    "SnapshotService",
+    "Inventory",
+    "Cache",
 ]
