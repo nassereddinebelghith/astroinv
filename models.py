@@ -1,7 +1,9 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
-from typing import Any, Optional
+from enum import Enum
+from typing import Optional, Any
+
+from .exceptions import InvalidInstancePathError
+from .constants import PATH_REGEX
 
 
 @dataclass(frozen=True)
@@ -48,13 +50,6 @@ class Source:
 
 @dataclass(frozen=True)
 class InstancePath:
-    """Best-effort parser for inventory directory paths.
-
-    Expected shape:
-      {zone}/{env}/{cust_name}-{cust_apcode}/{apcode}-{release_id}
-    """
-
-    raw: str
     zone: str
     env: str
     cust_name: str
@@ -63,37 +58,19 @@ class InstancePath:
     release_id: str
 
     @staticmethod
-    def parse(path: str) -> "InstancePath":
-        parts = path.strip("/").split("/")
-        if len(parts) < 4:
-            raise ValueError(f"Invalid instance path: {path}")
-
-        zone = parts[0]
-        env = parts[1]
-
-        cust_seg = parts[2]
-        if "-" not in cust_seg:
-            raise ValueError(f"Invalid customer segment: {cust_seg}")
-        cust_name, cust_apcode = cust_seg.rsplit("-", 1)
-
-        inst_seg = parts[3]
-        if "-" not in inst_seg:
-            raise ValueError(f"Invalid instance segment: {inst_seg}")
-        apcode, release_id = inst_seg.split("-", 1)
+    def from_str(path: str) -> "InstancePath":
+        match = PATH_REGEX.match(path)
+        if match is None:
+            raise InvalidInstancePathError(path)
 
         return InstancePath(
-            raw=path,
-            zone=zone,
-            env=env,
-            cust_name=cust_name,
-            cust_apcode=cust_apcode,
-            apcode=apcode,
-            release_id=release_id,
+            zone=match["zone"],
+            env=match["env"],
+            cust_name=match["cust_name"],
+            cust_apcode=match["cust_apcode"],
+            apcode=match["apcode"],
+            release_id=match["release_id"],
         )
-
-    @property
-    def base_dir(self) -> str:
-        return f"{self.zone}/{self.env}/{self.cust_name}-{self.cust_apcode}/{self.apcode}-{self.release_id}"
 
 
 @dataclass(frozen=True)
@@ -142,16 +119,7 @@ class AirflowHealthResult:
     failure: Optional[AirflowHealthError] = None
 
 
-@dataclass(frozen=True)
-class EphemeralConfig:
-    source: str  # release_id
-    number: int
-    bucket_sync: Optional[dict] = None
-    git_sync: Optional[dict] = None
-
-
-@dataclass(frozen=True)
-class InventorySnapshot:
-    """Marketplace-friendly snapshot."""
-    instances: list[Instance]
-    generated_at_utc: str
+class Action(str, Enum):
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
