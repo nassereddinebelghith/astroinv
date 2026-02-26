@@ -1,102 +1,22 @@
-from aiohttp import ClientSession, ClientTimeout
-
-import base64
-
-from copy import deepcopy
-
-from datetime import datetime
-
-from enum import Enum
-
-from jinja2 import Environment, Template, FileSystemLoader, TemplateNotFound
-
-import logging
-
-from pathlib import Path
-
-from pydantic import BaseModel, Field, AfterValidator
-
-import re
-
-import requests
-
-from requests import RequestException
-
-import semver.version
-
-import subprocess
-
-from tenacity import retry, stop_after_attempt, wait_fixed
-
-from time import sleep
-
-from typing import Annotated
-
-import urllib
-
-import uuid
-
-import yaml
-
-
-from .constants import (
-    APCODE_REGEX,
-    CLUSTER_REGEX,
-    EPH_FILENAME_REGEX,
-    FIRST_VERSION,
-    GITLAB_MAX_TRIES,
-    GITLAB_TRY_WAIT,
-    JINJA_ENV,
-    LEGACY_PATH_REGEX,
-    LEGACY_REF_BY_ENV,
-    PATH_REGEX,
-    VERSION_REGEX,
-)
-from .exceptions import (
-    CustomerNotFoundError,
-    FileNotFoundError,
-    GitLabError,
-    InstanceNotFoundError,
-    InvalidClusterNameError,
-    InvalidInstancePathError,
-    InvalidInventoryPathError,
-    InventoryError,
-    SecretStoreNotFoundError,
-)
+from ._imports import *
+from .constants import *
+from .errors import *
 from .models import *
 from .cache import *
+from .utils import *
+from .parsers import *
+from .mixins.gitlab import GitLabMixin
+from .mixins.parsing import ParsingMixin
+from .mixins.legacy import LegacyMixin
 
-try:
-    from .inventory_gitlab import GitLabMixin
-except Exception:
-    class GitLabMixin: pass
-try:
-    from .inventory_parse import ParseMixin
-except Exception:
-    class ParseMixin: pass
-try:
-    from .inventory_legacy import LegacyMixin
-except Exception:
-    class LegacyMixin: pass
-try:
-    from .inventory_ephemeral import EphemeralMixin
-except Exception:
-    class EphemeralMixin: pass
-try:
-    from .inventory_health import HealthMixin
-except Exception:
-    class HealthMixin: pass
-try:
-    from .inventory_query import QueryMixin
-except Exception:
-    class QueryMixin: pass
-try:
-    from .inventory_other import OtherMixin
-except Exception:
-    class OtherMixin: pass
 
-class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixin, QueryMixin, OtherMixin):
-    def init(
+class Inventory(GitLabMixin, ParsingMixin, LegacyMixin):
+
+    def __init__(self, *args, **kwargs):
+        # Backward-compatible: original code uses init() not __init__
+        self.init(*args, **kwargs)
+
+def init(
 
             self,
 
@@ -140,8 +60,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         self.chart_project_id = chart_project_id
 
-
-    async def delete_ephemeral(
+async def delete_ephemeral(
 
             self,
 
@@ -169,9 +88,9 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
             )
 
-            await self._create_gitlab_branch(branch)
+            await self.__create_gitlab_branch(branch)
 
-            await self._delete_gitlab_file(
+            await self.__delete_gitlab_file(
 
                 path=eph.source.path,
 
@@ -185,7 +104,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
             )
 
-            mr_id = await self._create_gitlab_merge_request(
+            mr_id = await self.__create_gitlab_merge_request(
 
                 branch, f"{eph.name}: delete"
 
@@ -193,10 +112,9 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
             if not no_merge:
 
-                await self._merge_gitlab_merge_request(mr_id)
+                await self.__merge_gitlab_merge_request(mr_id)
 
-
-    async def get_all(
+async def get_all(
 
             self, envs: list[str] = list(LEGACY_REF_BY_ENV.keys())
 
@@ -206,11 +124,11 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         for env in envs:
 
-            env_insts = await self._get_all_from_env(env)
+            env_insts = await self.__get_all_from_env(env)
 
             release_ids = [inst.release_id for inst in env_insts]
 
-            legacy_insts = await self._get_all_legacies_from_env(env, release_ids)
+            legacy_insts = await self.__get_all_legacies_from_env(env, release_ids)
 
             insts.extend(env_insts)
 
@@ -218,8 +136,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         return insts
 
-
-    async def get_all_by_customer_apcode(
+async def get_all_by_customer_apcode(
 
             self, cust_apcode: str, envs: list[str] = list(LEGACY_REF_BY_ENV.keys())
 
@@ -229,7 +146,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         for env in envs:
 
-            env_insts = await self._get_all_by_customer_apcode_from_env(
+            env_insts = await self.__get_all_by_customer_apcode_from_env(
 
                 env, cust_apcode
 
@@ -237,7 +154,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
             release_ids = [inst.release_id for inst in env_insts]
 
-            legacy_insts = await self._get_all_legacies_by_customer_apcode_from_env(
+            legacy_insts = await self.__get_all_legacies_by_customer_apcode_from_env(
 
                 env, cust_apcode, release_ids
 
@@ -249,7 +166,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         return insts
 
-    async def get_all_by_customer_name(
+async def get_all_by_customer_name(
 
             self, cust_name: str, envs: list[str] = list(LEGACY_REF_BY_ENV.keys())
 
@@ -259,11 +176,11 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         for env in envs:
 
-            env_insts = await self._get_all_by_customer_name_from_env(env, cust_name)
+            env_insts = await self.__get_all_by_customer_name_from_env(env, cust_name)
 
             release_ids = [inst.release_id for inst in env_insts]
 
-            legacy_insts = await self._get_all_legacies_by_customer_name_from_env(
+            legacy_insts = await self.__get_all_legacies_by_customer_name_from_env(
 
                 env, cust_name, release_ids
 
@@ -275,8 +192,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         return insts
 
-
-    async def get_all_clusters_by_customer_apcode(
+async def get_all_clusters_by_customer_apcode(
 
             self, cust_apcode: str, zones: list[str] = ["hprd", "prod"]
 
@@ -288,7 +204,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
             self.logger.debug(f"listing clusters in {zone}")
 
-            cluster_tree = await self._get_gitlab_repository_tree(
+            cluster_tree = await self.__get_gitlab_repository_tree(
 
                 self.cluster_project_id, zone, self.cluster_ref
 
@@ -316,8 +232,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         return clusters
 
-
-    async def get_all_ephemerals(
+async def get_all_ephemerals(
 
             self, envs: list[str] = list(LEGACY_REF_BY_ENV.keys())
 
@@ -327,14 +242,13 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         for env in envs:
 
-            env_ephs = await self._get_all_ephemerals_from_env(env)
+            env_ephs = await self.__get_all_ephemerals_from_env(env)
 
             ephs.extend(env_ephs)
 
         return ephs
 
-
-    async def get_all_ephemerals_by_customer_apcode(
+async def get_all_ephemerals_by_customer_apcode(
 
             self, cust_apcode: str, envs: list[str] = list(LEGACY_REF_BY_ENV.keys())
 
@@ -344,7 +258,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         for env in envs:
 
-            env_ephs = await self._get_all_ephemerals_by_customer_apcode_from_env(
+            env_ephs = await self.__get_all_ephemerals_by_customer_apcode_from_env(
 
                 env, cust_apcode
 
@@ -354,8 +268,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         return ephs
 
-
-    async def get_all_ephemerals_by_customer_name(
+async def get_all_ephemerals_by_customer_name(
 
             self, cust_name: str, envs: list[str] = list(LEGACY_REF_BY_ENV.keys())
 
@@ -365,7 +278,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         for env in envs:
 
-            env_ephs = await self._get_all_ephemerals_by_customer_name_from_env(
+            env_ephs = await self.__get_all_ephemerals_by_customer_name_from_env(
 
                 env, cust_name
 
@@ -375,8 +288,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         return ephs
 
-
-    async def get_all_ephemerals_by_release_id(
+async def get_all_ephemerals_by_release_id(
 
             self, release_id: str
 
@@ -390,10 +302,9 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         path = InstancePath.parse(inst.source.path)
 
-        return await self._parse_all_ephemerals(path)
+        return await self.__parse_all_ephemerals(path)
 
-
-    async def get_all_health(
+async def get_all_health(
 
             self, envs: list[str] = list(LEGACY_REF_BY_ENV.keys())
 
@@ -401,10 +312,9 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         insts = await self.get_all(envs)
 
-        return await self._get_all_health(insts)
+        return await self.__get_all_health(insts)
 
-
-    async def get_all_health_by_customer_apcode(
+async def get_all_health_by_customer_apcode(
 
             self, cust_apcode: str, envs: list[str] = list(LEGACY_REF_BY_ENV.keys())
 
@@ -412,10 +322,9 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         insts = await self.get_all_by_customer_apcode(cust_apcode, envs)
 
-        return await self._get_all_health(insts)
+        return await self.__get_all_health(insts)
 
-
-    async def get_all_health_by_customer_name(
+async def get_all_health_by_customer_name(
 
             self, cust_name: str, envs: list[str] = list(LEGACY_REF_BY_ENV.keys())
 
@@ -423,14 +332,13 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         insts = await self.get_all_by_customer_name(cust_name, envs)
 
-        return await self._get_all_health(insts)
+        return await self.__get_all_health(insts)
 
-
-    async def get_all_versions(self) -> list[str]:
+async def get_all_versions(self) -> list[str]:
 
         self.logger.debug("getting releases")
 
-        releases = await self._get_gitlab_releases()
+        releases = await self.__get_gitlab_releases()
 
         versions = []
 
@@ -464,20 +372,19 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         return versions
 
-    async def get_by_release_id(self, release_id: str) -> Instance | None:
+async def get_by_release_id(self, release_id: str) -> Instance | None:
 
-        inst_path = await self._get_instance_path_by_release_id(release_id)
+        inst_path = await self.__get_instance_path_by_release_id(release_id)
 
         if inst_path is None:
 
-            return await self._get_legacy_by_release_id(release_id)
+            return await self.__get_legacy_by_release_id(release_id)
 
         else:
 
-            return await self._parse_instance(inst_path)
+            return await self.__parse_instance(inst_path)
 
-
-    async def get_cluster_by_name(self, name: str) -> Cluster | None:
+async def get_cluster_by_name(self, name: str) -> Cluster | None:
 
         cluster = self.cache.get_cluster(name)
 
@@ -505,7 +412,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
             try:
 
-                cluster_file = await self._get_gitlab_file(
+                cluster_file = await self.__get_gitlab_file(
 
                     self.cluster_project_id, cluster_path, self.cluster_ref
 
@@ -531,8 +438,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         return cluster
 
-
-    async def get_customer_metadata(
+async def get_customer_metadata(
 
             self, apcode: str, env: str
 
@@ -552,7 +458,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
             self.logger.debug(f"listing customers in {path}")
 
-            cust_tree = await self._get_gitlab_repository_tree(
+            cust_tree = await self.__get_gitlab_repository_tree(
 
                 self.inv_project_id, path, self.inv_ref
 
@@ -582,7 +488,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
                         )
 
-                        values_content_file = await self._get_gitlab_file(
+                        values_content_file = await self.__get_gitlab_file(
 
                             self.inv_project_id, values_path, self.inv_ref
 
@@ -600,19 +506,17 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         return None
 
+async def get_ephemeral(self, release_id: str, number: int) -> Ephemeral | None:
 
-    async def get_ephemeral(self, release_id: str, number: int) -> Ephemeral | None:
-
-        inst = await self._get_ephemeral_from_zone("hprd", release_id, number)
+        inst = await self.__get_ephemeral_from_zone("hprd", release_id, number)
 
         if inst is not None:
 
             return inst
 
-        return await self._get_ephemeral_from_zone("prod", release_id, number)
+        return await self.__get_ephemeral_from_zone("prod", release_id, number)
 
-
-    async def save(
+async def save(
 
             self,
 
@@ -672,13 +576,13 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         values_path = f"{inst_path.path}/values.yaml"
 
-        meta_file = await self._get_gitlab_file(
+        meta_file = await self.__get_gitlab_file(
 
             self.inv_project_id, meta_path, self.inv_ref
 
         )
 
-        values_file = await self._get_gitlab_file(
+        values_file = await self.__get_gitlab_file(
 
             self.inv_project_id, values_path, self.inv_ref
 
@@ -746,7 +650,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         branch = f"{inst.release_id}-{now.strftime('%Y%m%d%H%M%S')}"
 
-        meta_tpl = self._parse_template("metadata")
+        meta_tpl = self.__parse_template("metadata")
 
         meta_content = meta_tpl.render(inst=inst)
 
@@ -754,7 +658,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         if version_match is None:
 
-            values_tpl = self._parse_template("values-latest")
+            values_tpl = self.__parse_template("values-latest")
 
         else:
 
@@ -764,13 +668,13 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
             try:
 
-                values_tpl = self._parse_template(tpl_name)
+                values_tpl = self.__parse_template(tpl_name)
 
             except TemplateNotFound as err:
 
                 self.logger.warn(f"template {tpl_name} doesn't exist, using latest")
 
-                values_tpl = self._parse_template("values-latest")
+                values_tpl = self.__parse_template("values-latest")
 
         secrets = [sync.secret for sync in inst.bucket_sync]
 
@@ -784,7 +688,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
             inst=inst,
 
-            secret_stores=self._secret_stores_from_secrets(secrets),
+            secret_stores=self.__secret_stores_from_secrets(secrets),
 
         )
 
@@ -798,7 +702,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         if not dry_run:
 
-            await self._create_gitlab_branch(branch)
+            await self.__create_gitlab_branch(branch)
 
             changed = False
 
@@ -806,7 +710,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
                 mr_name = f"{inst.name}: create"
 
-                await self._create_gitlab_file(
+                await self.__create_gitlab_file(
 
                     path=meta_path,
 
@@ -828,7 +732,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
                 mr_name = f"{inst.name}: update"
 
-                updated = await self._update_gitlab_file(
+                updated = await self.__update_gitlab_file(
 
                     file=meta_file,
 
@@ -850,7 +754,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
             if values_file is None:
 
-                await self._create_gitlab_file(
+                await self.__create_gitlab_file(
 
                     path=values_path,
 
@@ -870,7 +774,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
             else:
 
-                updated = await self._update_gitlab_file(
+                updated = await self.__update_gitlab_file(
 
                     file=values_file,
 
@@ -892,21 +796,21 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
             if changed:
 
-                mr_id = await self._create_gitlab_merge_request(branch, mr_name)
+                mr_id = await self.__create_gitlab_merge_request(branch, mr_name)
 
                 if not no_merge:
 
-                    await self._merge_gitlab_merge_request(mr_id)
+                    await self.__merge_gitlab_merge_request(mr_id)
 
             else:
 
-                await self._delete_gitlab_branch(branch)
+                await self.__delete_gitlab_branch(branch)
 
         self.cache.save_instance_path(inst_path)
 
         return inst
 
-    async def save_ephemeral(
+async def save_ephemeral(
 
             self,
 
@@ -970,13 +874,13 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         secrets.extend([sync.secret for sync in cfg.git_sync])
 
-        values_tpl = self._parse_template("eph")
+        values_tpl = self.__parse_template("eph")
 
         values_content = values_tpl.render(
 
             eph=eph,
 
-            secret_stores=self._secret_stores_from_secrets(secrets),
+            secret_stores=self.__secret_stores_from_secrets(secrets),
 
         )
 
@@ -986,9 +890,9 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
         if not dry_run:
 
-            await self._create_gitlab_branch(branch)
+            await self.__create_gitlab_branch(branch)
 
-            values_file = await self._get_gitlab_file(
+            values_file = await self.__get_gitlab_file(
 
                 self.inv_project_id, values_path, branch
 
@@ -1000,7 +904,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
                 mr_name = f"{eph.name}: create"
 
-                await self._create_gitlab_file(
+                await self.__create_gitlab_file(
 
                     path=values_path,
 
@@ -1022,7 +926,7 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
                 mr_name = f"{eph.name}: update"
 
-                updated = await self._update_gitlab_file(
+                updated = await self.__update_gitlab_file(
 
                     path=values_file,
 
@@ -1044,18 +948,222 @@ class Inventory(GitLabMixin, ParseMixin, LegacyMixin, EphemeralMixin, HealthMixi
 
             if changed:
 
-                mr_id = await self._create_gitlab_merge_request(branch, mr_name)
+                mr_id = await self.__create_gitlab_merge_request(branch, mr_name)
 
                 if not no_merge:
 
-                    await self._merge_gitlab_merge_request(mr_id)
+                    await self.__merge_gitlab_merge_request(mr_id)
 
             else:
 
-                await self._delete_gitlab_branch(branch)
+                await self.__delete_gitlab_branch(branch)
 
         return eph
 
-    @retry(wait=wait_fixed(GITLAB_TRY_WAIT), stop=stop_after_attempt(GITLAB_MAX_TRIES))
+async def __create_gitlab_branch(self, branch: str):
 
+        return await self._create_gitlab_branch(branch)
+
+
+async def __create_gitlab_file(
+
+            self,
+
+            path: str,
+
+            content: str,
+
+            ref: str,
+
+            msg: str,
+
+            author_name: str,
+
+            author_email: str,
+
+    ):
+
+        return await self._create_gitlab_file(path, content, ref, msg, author_name, author_email)
+
+
+async def __create_gitlab_merge_request(self, branch: str, title: str) -> int:
+
+        return await self._create_gitlab_merge_request(branch, title)
+
+
+async def __delete_gitlab_branch(self, branch: str):
+
+        return await self._delete_gitlab_branch(branch)
+
+
+async def __delete_gitlab_file(
+
+            self, path: str, ref: str, msg: str, author_name: str, author_email: str
+
+    ):
+
+        return await self._delete_gitlab_file(path, ref, msg, author_name, author_email)
+
+
+async def __get_all_by_customer_apcode_from_env(
+
+            self, env: str, cust_apcode: str
+
+    ) -> list[Instance]:
+
+        return await self._get_all_by_customer_apcode_from_env(env, cust_apcode)
+
+
+async def __get_all_by_customer_name_from_env(
+
+            self, env: str, cust_name: str
+
+    ) -> list[Instance]:
+
+        return await self._get_all_by_customer_name_from_env(env, cust_name)
+
+
+async def __get_all_from_env(self, env: str) -> list[Instance]:
+
+        return await self._get_all_from_env(env)
+
+
+async def __get_all_ephemerals_by_customer_apcode_from_env(
+
+            self, env: str, cust_apcode: str
+
+    ) -> list[Ephemeral]:
+
+        return await self._get_all_ephemerals_by_customer_apcode_from_env(env, cust_apcode)
+
+
+async def __get_all_ephemerals_by_customer_name_from_env(
+
+            self, env: str, cust_name: str
+
+    ) -> list[Ephemeral]:
+
+        return await self._get_all_ephemerals_by_customer_name_from_env(env, cust_name)
+
+
+async def __get_all_ephemerals_from_env(self, env: str) -> list[Ephemeral]:
+
+        return await self._get_all_ephemerals_from_env(env)
+
+
+async def __get_all_legacies_by_customer_apcode_from_env(
+
+            self, env: str, cust_apcode: str, release_ids: list[str]
+
+    ) -> list[Instance]:
+
+        return await self._get_all_legacies_by_customer_apcode_from_env(env, cust_apcode, release_ids)
+
+
+async def __get_all_legacies_by_customer_name_from_env(
+
+            self, env: str, cust_name: str, release_ids: list[str]
+
+    ) -> list[Instance]:
+
+        return await self._get_all_legacies_by_customer_name_from_env(env, cust_name, release_ids)
+
+
+async def __get_all_legacies_from_env(
+
+            self, env: str, release_ids: list[str]
+
+    ) -> list[Instance]:
+
+        return await self._get_all_legacies_from_env(env, release_ids)
+
+
+async def __get_all_health(self, insts: list[Instance]):
+
+        return await self._get_all_health(insts)
+
+
+async def __get_ephemeral_from_zone(
+
+            self,
+
+            zone: str,
+
+            release_id: str,
+
+            number: int,
+
+    ) -> Ephemeral | None:
+
+        return await self._get_ephemeral_from_zone(zone, release_id, number)
+
+
+async def __get_gitlab_file(
+
+            self, project_id: int, path: str, ref: str
+
+    ) -> GitLabFile | None:
+
+        return await self._get_gitlab_file(project_id, path, ref)
+
+
+async def __get_gitlab_releases(self) -> list[str]:
+
+        return await self._get_gitlab_releases()
+
+
+async def __get_gitlab_repository_tree(
+
+            self, project_id: int, path: str, ref: str
+
+    ) -> list[dict]:
+
+        return await self._get_gitlab_repository_tree(project_id, path, ref)
+
+
+async def __get_legacy_by_release_id(self, release_id: str) -> Instance | None:
+
+        return await self._get_legacy_by_release_id(release_id)
+
+
+async def __get_health(self, inst: Instance) -> AirflowHealthResult:
+
+        return await self._get_health(inst)
+
+
+async def __get_instance_path_by_release_id(
+
+            self, release_id: str
+
+    ) -> InstancePath | None:
+
+        return await self._get_instance_path_by_release_id(release_id)
+
+
+async def __merge_gitlab_merge_request(self, mr_id: int):
+
+        return await self._merge_gitlab_merge_request(mr_id)
+
+
+async def __parse_all_ephemerals(self, path: InstancePath) -> list[Ephemeral]:
+
+        return await self._parse_all_ephemerals(path)
+
+
+def __parse_bucket_sync(self, inst_values: dict) -> list[BucketSync]:
+
+        return self._parse_bucket_sync(inst_values)
+
+
+def __parse_bucket_sync_mapping(
+
+            self,
+
+            props: dict | None,
+
+            default: BucketSyncSecretMapping = BucketSyncSecretMapping(),
+
+    ) -> BucketSyncSecretMapping:
+
+        return self._parse_bucket_sync_mapping(props, default)
 
