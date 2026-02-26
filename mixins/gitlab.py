@@ -8,327 +8,235 @@ from ..parsers import *
 
 
 class GitLabMixin:
-async def _create_gitlab_branch(self, branch: str):
+    async def _create_gitlab_branch(self, branch: str):
 
-        self.logger.debug(f"creating branch {branch}")
+            self.logger.debug(f"creating branch {branch}")
 
-        async with ClientSession() as session:
+            async with ClientSession() as session:
 
-            url = (
+                url = (
 
-                f"{self.gitlab_url}/projects/{self.inv_project_id}/repository/branches"
+                    f"{self.gitlab_url}/projects/{self.inv_project_id}/repository/branches"
 
-            )
+                )
 
-            self.logger.debug(f"doing POST on {url}")
+                self.logger.debug(f"doing POST on {url}")
 
-            async with session.post(
+                async with session.post(
 
-                    url,
+                        url,
 
-                    headers={
+                        headers={
 
-                        "Authorization": f"Bearer {self.gitlab_token}",
+                            "Authorization": f"Bearer {self.gitlab_token}",
 
-                        "Content-Type": "application/json",
+                            "Content-Type": "application/json",
 
-                    },
+                        },
 
-                    json={
+                        json={
 
-                        "branch": branch,
+                            "branch": branch,
 
-                        "ref": self.inv_ref,
+                            "ref": self.inv_ref,
 
-                    },
+                        },
 
-            ) as resp:
+                ) as resp:
 
-                if resp.status != 201:
+                    if resp.status != 201:
 
-                    raise GitLabError(resp.status)
+                        raise GitLabError(resp.status)
 
-async def _create_gitlab_file(
+    async def _create_gitlab_file(
 
-            self,
+                self,
 
-            path: str,
+                path: str,
 
-            content: str,
+                content: str,
 
-            ref: str,
+                ref: str,
 
-            msg: str,
+                msg: str,
 
-            author_name: str,
+                author_name: str,
 
-            author_email: str,
+                author_email: str,
 
-    ):
+        ):
 
-        self.logger.debug(f"creating {path}")
+            self.logger.debug(f"creating {path}")
 
-        url_path = urllib.parse.quote(path, safe="")
+            url_path = urllib.parse.quote(path, safe="")
 
-        async with ClientSession() as session:
+            async with ClientSession() as session:
 
-            url = f"{self.gitlab_url}/projects/{self.inv_project_id}/repository/files/{url_path}"
+                url = f"{self.gitlab_url}/projects/{self.inv_project_id}/repository/files/{url_path}"
 
-            self.logger.debug(f"doing POST on {url}")
+                self.logger.debug(f"doing POST on {url}")
 
-            async with session.post(
+                async with session.post(
 
-                    url,
+                        url,
 
-                    headers={
+                        headers={
 
-                        "Authorization": f"Bearer {self.gitlab_token}",
+                            "Authorization": f"Bearer {self.gitlab_token}",
 
-                        "Content-Type": "application/json",
+                            "Content-Type": "application/json",
 
-                    },
+                        },
 
-                    json={
+                        json={
 
-                        "branch": ref,
+                            "branch": ref,
 
-                        "content": content,
+                            "content": content,
 
-                        "author_email": author_email,
+                            "author_email": author_email,
 
-                        "author_name": author_name,
+                            "author_name": author_name,
 
-                        "commit_message": msg,
+                            "commit_message": msg,
 
-                    },
+                        },
 
-            ) as resp:
+                ) as resp:
 
-                if resp.status != 201:
+                    if resp.status != 201:
 
-                    raise GitLabError(resp.status)
+                        raise GitLabError(resp.status)
 
-async def _create_gitlab_merge_request(self, branch: str, title: str) -> int:
+    async def _create_gitlab_merge_request(self, branch: str, title: str) -> int:
 
-        self.logger.debug(f"creating merge request from {branch} into {self.inv_ref}")
+            self.logger.debug(f"creating merge request from {branch} into {self.inv_ref}")
 
-        async with ClientSession() as session:
+            async with ClientSession() as session:
 
-            url = f"{self.gitlab_url}/projects/{self.inv_project_id}/merge_requests"
+                url = f"{self.gitlab_url}/projects/{self.inv_project_id}/merge_requests"
 
-            self.logger.debug(f"doing POST on {url}")
+                self.logger.debug(f"doing POST on {url}")
 
-            async with session.post(
+                async with session.post(
 
-                    url,
+                        url,
 
-                    headers={
+                        headers={
 
-                        "Authorization": f"Bearer {self.gitlab_token}",
+                            "Authorization": f"Bearer {self.gitlab_token}",
 
-                        "Content-Type": "application/json",
+                            "Content-Type": "application/json",
 
-                    },
+                        },
 
-                    json={
+                        json={
 
-                        "source_branch": branch,
+                            "source_branch": branch,
 
-                        "target_branch": self.inv_ref,
+                            "target_branch": self.inv_ref,
 
-                        "title": title,
+                            "title": title,
 
-                    },
+                        },
 
-            ) as resp:
+                ) as resp:
 
-                if resp.status != 201:
+                    if resp.status != 201:
 
-                    raise GitLabError(resp.status)
-
-                data = await resp.json()
-
-                return data["iid"]
-
-async def _delete_gitlab_branch(self, branch: str):
-
-        self.logger.debug(f"deleting branch {branch}")
-
-        async with ClientSession() as session:
-
-            url = f"{self.gitlab_url}/projects/{self.inv_project_id}/repository/branches/{branch}"
-
-            self.logger.debug(f"doing DELETE on {url}")
-
-            async with session.delete(
-
-                    url,
-
-                    headers={
-
-                        "Authorization": f"Bearer {self.gitlab_token}",
-
-                        "Content-Type": "application/json",
-
-                    },
-
-            ) as resp:
-
-                if resp.status != 204:
-
-                    raise GitLabError(resp.status)
-
-async def _delete_gitlab_file(
-
-            self, path: str, ref: str, msg: str, author_name: str, author_email: str
-
-    ):
-
-        self.logger.debug(f"deleting {path}")
-
-        url_path = urllib.parse.quote(path, safe="")
-
-        async with ClientSession() as session:
-
-            url = f"{self.gitlab_url}/projects/{self.inv_project_id}/repository/files/{url_path}"
-
-            self.logger.debug(f"doing DELETE on {url}")
-
-            async with session.delete(
-
-                    url,
-
-                    headers={
-
-                        "Authorization": f"Bearer {self.gitlab_token}",
-
-                        "Content-Type": "application/json",
-
-                    },
-
-                    json={
-
-                        "branch": ref,
-
-                        "author_email": author_email,
-
-                        "author_name": author_name,
-
-                        "commit_message": msg,
-
-                    },
-
-            ) as resp:
-
-                if resp.status != 200:
-
-                    raise GitLabError(resp.status)
-
-async def _get_gitlab_file(
-
-            self, project_id: int, path: str, ref: str
-
-    ) -> GitLabFile | None:
-
-        self.logger.debug(f"getting {path}")
-
-        url_path = urllib.parse.quote(path, safe="")
-
-        async with ClientSession() as session:
-
-            url = f"{self.gitlab_url}/projects/{project_id}/repository/files/{url_path}"
-
-            self.logger.debug(f"doing get on {url}")
-
-            async with session.get(
-
-                    url,
-
-                    headers={
-
-                        "Authorization": f"Bearer {self.gitlab_token}",
-
-                    },
-
-                    params={
-
-                        "ref": ref,
-
-                    },
-
-            ) as resp:
-
-                if resp.status == 200:
+                        raise GitLabError(resp.status)
 
                     data = await resp.json()
 
-                    content = base64.b64decode(data["content"])
+                    return data["iid"]
 
-                    return GitLabFile(
+    async def _delete_gitlab_branch(self, branch: str):
 
-                        content=content,
+            self.logger.debug(f"deleting branch {branch}")
 
-                        path=path,
+            async with ClientSession() as session:
 
-                    )
+                url = f"{self.gitlab_url}/projects/{self.inv_project_id}/repository/branches/{branch}"
 
-                elif resp.status == 404:
+                self.logger.debug(f"doing DELETE on {url}")
 
-                    return None
+                async with session.delete(
 
-                else:
+                        url,
 
-                    raise GitLabError(resp.status)
+                        headers={
 
-async def _get_gitlab_releases(self) -> list[str]:
+                            "Authorization": f"Bearer {self.gitlab_token}",
 
-        self.logger.debug(f"getting releases")
+                            "Content-Type": "application/json",
 
-        async with ClientSession() as session:
+                        },
 
-            url = f"{self.gitlab_url}/projects/{self.chart_project_id}/releases"
+                ) as resp:
 
-            self.logger.debug(f"doing get on {url}")
+                    if resp.status != 204:
 
-            async with session.get(
+                        raise GitLabError(resp.status)
 
-                    url,
+    async def _delete_gitlab_file(
 
-                    headers={
+                self, path: str, ref: str, msg: str, author_name: str, author_email: str
 
-                        "Authorization": f"Bearer {self.gitlab_token}",
+        ):
 
-                    },
+            self.logger.debug(f"deleting {path}")
 
-            ) as resp:
+            url_path = urllib.parse.quote(path, safe="")
 
-                if resp.status == 200:
+            async with ClientSession() as session:
 
-                    data = await resp.json()
+                url = f"{self.gitlab_url}/projects/{self.inv_project_id}/repository/files/{url_path}"
 
-                    return list([release["name"] for release in data])
+                self.logger.debug(f"doing DELETE on {url}")
 
-                else:
+                async with session.delete(
 
-                    raise GitLabError(resp.status)
+                        url,
 
-async def _get_gitlab_repository_tree(
+                        headers={
 
-            self, project_id: int, path: str, ref: str
+                            "Authorization": f"Bearer {self.gitlab_token}",
 
-    ) -> list[dict]:
+                            "Content-Type": "application/json",
 
-        self.logger.debug(f"getting tree from {path} from {ref}")
+                        },
 
-        tree = []
+                        json={
 
-        page = 1
+                            "branch": ref,
 
-        async with ClientSession() as session:
+                            "author_email": author_email,
 
-            url = f"{self.gitlab_url}/projects/{project_id}/repository/tree"
+                            "author_name": author_name,
 
-            while True:
+                            "commit_message": msg,
+
+                        },
+
+                ) as resp:
+
+                    if resp.status != 200:
+
+                        raise GitLabError(resp.status)
+
+    async def _get_gitlab_file(
+
+                self, project_id: int, path: str, ref: str
+
+        ) -> GitLabFile | None:
+
+            self.logger.debug(f"getting {path}")
+
+            url_path = urllib.parse.quote(path, safe="")
+
+            async with ClientSession() as session:
+
+                url = f"{self.gitlab_url}/projects/{project_id}/repository/files/{url_path}"
 
                 self.logger.debug(f"doing get on {url}")
 
@@ -344,12 +252,6 @@ async def _get_gitlab_repository_tree(
 
                         params={
 
-                            "page": page,
-
-                            "path": path,
-
-                            "per_page": 100,
-
                             "ref": ref,
 
                         },
@@ -358,70 +260,168 @@ async def _get_gitlab_repository_tree(
 
                     if resp.status == 200:
 
-                        tree.extend(await resp.json())
+                        data = await resp.json()
 
-                        if resp.headers["X-Next-Page"] == "":
+                        content = base64.b64decode(data["content"])
 
-                            break
+                        return GitLabFile(
 
-                        else:
+                            content=content,
 
-                            page += 1
+                            path=path,
+
+                        )
+
+                    elif resp.status == 404:
+
+                        return None
 
                     else:
 
                         raise GitLabError(resp.status)
 
-        return tree
+    async def _get_gitlab_releases(self) -> list[str]:
 
-async def _merge_gitlab_merge_request(self, mr_id: int):
+            self.logger.debug(f"getting releases")
 
-        self.logger.debug(f"rebasing merge request")
+            async with ClientSession() as session:
 
-        async with ClientSession() as session:
+                url = f"{self.gitlab_url}/projects/{self.chart_project_id}/releases"
 
-            url = f"{self.gitlab_url}/projects/{self.inv_project_id}/merge_requests/{mr_id}/rebase"
+                self.logger.debug(f"doing get on {url}")
 
-            self.logger.debug(f"doing PUT on {url}")
+                async with session.get(
 
-            async with session.put(
+                        url,
 
-                    url,
+                        headers={
 
-                    headers={
+                            "Authorization": f"Bearer {self.gitlab_token}",
 
-                        "Authorization": f"Bearer {self.gitlab_token}",
+                        },
 
-                        "Content-Type": "application/json",
+                ) as resp:
 
-                    },
+                    if resp.status == 200:
 
-            ) as resp:
+                        data = await resp.json()
 
-                if resp.status != 202:
+                        return list([release["name"] for release in data])
 
-                    raise GitLabError(resp.status)
+                    else:
 
-            self.logger.debug(f"merging merge request")
+                        raise GitLabError(resp.status)
 
-            url = f"{self.gitlab_url}/projects/{self.inv_project_id}/merge_requests/{mr_id}/merge"
+    async def _get_gitlab_repository_tree(
 
-            self.logger.debug(f"doing PUT on {url}")
+                self, project_id: int, path: str, ref: str
 
-            async with session.put(
+        ) -> list[dict]:
 
-                    url,
+            self.logger.debug(f"getting tree from {path} from {ref}")
 
-                    headers={
+            tree = []
 
-                        "Authorization": f"Bearer {self.gitlab_token}",
+            page = 1
 
-                        "Content-Type": "application/json",
+            async with ClientSession() as session:
 
-                    },
+                url = f"{self.gitlab_url}/projects/{project_id}/repository/tree"
 
-            ) as resp:
+                while True:
 
-                if resp.status != 200:
+                    self.logger.debug(f"doing get on {url}")
 
-                    raise GitLabError(resp.status)
+                    async with session.get(
+
+                            url,
+
+                            headers={
+
+                                "Authorization": f"Bearer {self.gitlab_token}",
+
+                            },
+
+                            params={
+
+                                "page": page,
+
+                                "path": path,
+
+                                "per_page": 100,
+
+                                "ref": ref,
+
+                            },
+
+                    ) as resp:
+
+                        if resp.status == 200:
+
+                            tree.extend(await resp.json())
+
+                            if resp.headers["X-Next-Page"] == "":
+
+                                break
+
+                            else:
+
+                                page += 1
+
+                        else:
+
+                            raise GitLabError(resp.status)
+
+            return tree
+
+    async def _merge_gitlab_merge_request(self, mr_id: int):
+
+            self.logger.debug(f"rebasing merge request")
+
+            async with ClientSession() as session:
+
+                url = f"{self.gitlab_url}/projects/{self.inv_project_id}/merge_requests/{mr_id}/rebase"
+
+                self.logger.debug(f"doing PUT on {url}")
+
+                async with session.put(
+
+                        url,
+
+                        headers={
+
+                            "Authorization": f"Bearer {self.gitlab_token}",
+
+                            "Content-Type": "application/json",
+
+                        },
+
+                ) as resp:
+
+                    if resp.status != 202:
+
+                        raise GitLabError(resp.status)
+
+                self.logger.debug(f"merging merge request")
+
+                url = f"{self.gitlab_url}/projects/{self.inv_project_id}/merge_requests/{mr_id}/merge"
+
+                self.logger.debug(f"doing PUT on {url}")
+
+                async with session.put(
+
+                        url,
+
+                        headers={
+
+                            "Authorization": f"Bearer {self.gitlab_token}",
+
+                            "Content-Type": "application/json",
+
+                        },
+
+                ) as resp:
+
+                    if resp.status != 200:
+
+                        raise GitLabError(resp.status)
